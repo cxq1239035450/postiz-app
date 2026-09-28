@@ -5,6 +5,8 @@ dist
 tmp
 /out-tsc
 .env
+/uploads/
+/apps/backend/undefined/
 .apple
 # dependencies
 node_modules

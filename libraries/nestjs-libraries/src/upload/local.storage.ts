@@ -5,8 +5,12 @@ import { pipeline } from 'stream/promises';
 import { isSafePublicHttpsUrl } from '@gitroom/nestjs-libraries/dtos/webhooks/webhook.url.validator';
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { parseDataUrl } from '@gitroom/nestjs-libraries/upload/data.url';
+type FileTypeDetector = (
+  buffer: Uint8Array
+) => Promise<{ ext: string; mime: string } | undefined>;
+// Keep require for the CommonJS backend and the package's ESM export map.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { fileTypeFromBuffer } = require('file-type');
+const { fileTypeFromBuffer }: { fileTypeFromBuffer: FileTypeDetector } = require('file-type');
 
 const LOCAL_STORAGE_ALLOWED_MIME = new Set<string>([
   'image/jpeg',
@@ -23,7 +27,11 @@ const LOCAL_STORAGE_ALLOWED_MIME = new Set<string>([
   'audio/ogg',
 ]);
 export class LocalStorage implements IUploadProvider {
-  constructor(private uploadDirectory: string) {}
+  constructor(private uploadDirectory: string) {
+    if (!uploadDirectory?.trim()) {
+      throw new Error('Local storage requires UPLOAD_DIRECTORY to be configured.');
+    }
+  }
 
   // Files live under /YYYY/MM/DD with a random name; creates the folder
   private newFilePath(ext: string) {
@@ -49,12 +57,16 @@ export class LocalStorage implements IUploadProvider {
     };
   }
 
-  async uploadSimple(path: string) {
+  async uploadSimple(path: string): Promise<string> {
     const dataUrl = path.startsWith('data:') ? parseDataUrl(path) : null;
 
-    let body: Buffer;
+    let body: Uint8Array;
     if (dataUrl) {
-      body = dataUrl.buffer;
+      body = new Uint8Array(
+        dataUrl.buffer.buffer,
+        dataUrl.buffer.byteOffset,
+        dataUrl.buffer.byteLength
+      );
     } else {
       if (!(await isSafePublicHttpsUrl(path))) {
         throw new Error('Unsafe URL');
@@ -63,7 +75,7 @@ export class LocalStorage implements IUploadProvider {
         // @ts-ignore — undici option, not in lib.dom fetch types
         dispatcher: ssrfSafeDispatcher,
       });
-      body = Buffer.from(await loadImage.arrayBuffer());
+      body = new Uint8Array(await loadImage.arrayBuffer());
     }
 
     // Never trust the claimed mime/extension (data URL header, remote
@@ -83,16 +95,21 @@ export class LocalStorage implements IUploadProvider {
     return publicUrl;
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<any> {
+  async uploadFile(file: Express.Multer.File): Promise<UploadedStream> {
     try {
-      const detected = await fileTypeFromBuffer(file.buffer);
+      const body = new Uint8Array(
+        file.buffer.buffer,
+        file.buffer.byteOffset,
+        file.buffer.byteLength
+      );
+      const detected = await fileTypeFromBuffer(body);
       if (!detected || !LOCAL_STORAGE_ALLOWED_MIME.has(detected.mime)) {
         throw new Error('Unsupported file type.');
       }
       const safeMime = detected.mime;
 
       const { filename, filePath, path } = this.newFilePath(detected.ext);
-      writeFileSync(filePath, file.buffer);
+      writeFileSync(filePath, body);
 
       return {
         filename,
