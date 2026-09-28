@@ -5,12 +5,8 @@ import { pipeline } from 'stream/promises';
 import { isSafePublicHttpsUrl } from '@gitroom/nestjs-libraries/dtos/webhooks/webhook.url.validator';
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { parseDataUrl } from '@gitroom/nestjs-libraries/upload/data.url';
-type FileTypeDetector = (
-  buffer: Uint8Array
-) => Promise<{ ext: string; mime: string } | undefined>;
-// Keep require for the CommonJS backend and the package's ESM export map.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { fileTypeFromBuffer }: { fileTypeFromBuffer: FileTypeDetector } = require('file-type');
+const { fileTypeFromBuffer } = require('file-type');
 
 const LOCAL_STORAGE_ALLOWED_MIME = new Set<string>([
   'image/jpeg',
@@ -57,16 +53,12 @@ export class LocalStorage implements IUploadProvider {
     };
   }
 
-  async uploadSimple(path: string): Promise<string> {
+  async uploadSimple(path: string) {
     const dataUrl = path.startsWith('data:') ? parseDataUrl(path) : null;
 
-    let body: Uint8Array;
+    let body: Buffer;
     if (dataUrl) {
-      body = new Uint8Array(
-        dataUrl.buffer.buffer,
-        dataUrl.buffer.byteOffset,
-        dataUrl.buffer.byteLength
-      );
+      body = dataUrl.buffer;
     } else {
       if (!(await isSafePublicHttpsUrl(path))) {
         throw new Error('Unsafe URL');
@@ -75,7 +67,7 @@ export class LocalStorage implements IUploadProvider {
         // @ts-ignore — undici option, not in lib.dom fetch types
         dispatcher: ssrfSafeDispatcher,
       });
-      body = new Uint8Array(await loadImage.arrayBuffer());
+      body = Buffer.from(await loadImage.arrayBuffer());
     }
 
     // Never trust the claimed mime/extension (data URL header, remote
@@ -95,21 +87,16 @@ export class LocalStorage implements IUploadProvider {
     return publicUrl;
   }
 
-  async uploadFile(file: Express.Multer.File): Promise<UploadedStream> {
+  async uploadFile(file: Express.Multer.File): Promise<any> {
     try {
-      const body = new Uint8Array(
-        file.buffer.buffer,
-        file.buffer.byteOffset,
-        file.buffer.byteLength
-      );
-      const detected = await fileTypeFromBuffer(body);
+      const detected = await fileTypeFromBuffer(file.buffer);
       if (!detected || !LOCAL_STORAGE_ALLOWED_MIME.has(detected.mime)) {
         throw new Error('Unsupported file type.');
       }
       const safeMime = detected.mime;
 
       const { filename, filePath, path } = this.newFilePath(detected.ext);
-      writeFileSync(filePath, body);
+      writeFileSync(filePath, file.buffer);
 
       return {
         filename,

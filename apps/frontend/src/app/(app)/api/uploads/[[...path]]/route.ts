@@ -1,27 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createReadStream, statSync } from 'fs';
-import type { ReadStream } from 'fs';
 import { resolve, sep } from 'path';
+// @ts-ignore
 import mime from 'mime';
-async function* nodeStreamToIterator(
-  stream: ReadStream
-): AsyncGenerator<Uint8Array, undefined, unknown> {
-  for await (const chunk of stream as AsyncIterable<unknown>) {
-    if (!Buffer.isBuffer(chunk)) {
-      throw new TypeError('Expected a binary file stream');
-    }
-    yield new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+async function* nodeStreamToIterator(stream: any) {
+  for await (const chunk of stream) {
+    yield chunk;
   }
-  return undefined;
 }
-function iteratorToStream(iterator: AsyncIterator<Uint8Array, undefined, unknown>) {
-  return new ReadableStream<Uint8Array>({
+function iteratorToStream(iterator: any) {
+  return new ReadableStream({
     async pull(controller) {
       const { value, done } = await iterator.next();
       if (done) {
         controller.close();
       } else {
-        controller.enqueue(value);
+        controller.enqueue(new Uint8Array(value));
       }
     },
   });
@@ -47,31 +41,43 @@ export const GET = async (
   if (filePath !== base && !filePath.startsWith(base + sep)) {
     return new NextResponse('Not found', { status: 404 });
   }
-  let fileStats;
-  try {
-    fileStats = statSync(filePath);
-  } catch (error) {
-    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code || '')) {
-      return new NextResponse('Not found', { status: 404 });
-    }
-    throw error;
-  }
-  if (!fileStats.isFile()) {
-    return new NextResponse('Not found', { status: 404 });
-  }
-  const response = createReadStream(filePath);
+  const fileStats = statSync(filePath);
   const contentType = mime.getType(filePath) || 'application/octet-stream';
+
+  // Honor ranged requests: providers that push video in chunks (TikTok,
+  // YouTube, LinkedIn, X) fetch byte windows with a Range header and reject
+  // anything but a 206, so ignoring Range breaks their uploads.
+  const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get('range') || '');
+  const start = range ? Number(range[1]) : 0;
+  const end =
+    range && range[2]
+      ? Math.min(Number(range[2]), fileStats.size - 1)
+      : fileStats.size - 1;
+
+  if (range && (start >= fileStats.size || start > end)) {
+    return new NextResponse(null, {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${fileStats.size}` },
+    });
+  }
+
+  const response = createReadStream(filePath, range ? { start, end } : {});
   const iterator = nodeStreamToIterator(response);
   const webStream = iteratorToStream(iterator);
   return new Response(webStream, {
+    status: range ? 206 : 200,
     headers: {
       'Content-Type': contentType,
       // Set the appropriate content-type header
-      'Content-Length': fileStats.size.toString(),
+      'Content-Length': (end - start + 1).toString(),
       // Set the content-length header
       'Last-Modified': fileStats.mtime.toUTCString(),
       // Set the last-modified header
       'Cache-Control': 'public, max-age=31536000, immutable', // Example cache-control header
+      'Accept-Ranges': 'bytes',
+      ...(range
+        ? { 'Content-Range': `bytes ${start}-${end}/${fileStats.size}` }
+        : {}),
     },
   });
 };
