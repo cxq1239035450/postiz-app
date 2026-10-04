@@ -1,5 +1,5 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import dayjs from 'dayjs';
 import { Integration, Prisma } from '@prisma/client';
@@ -485,12 +485,23 @@ export class IntegrationRepository {
   }
 
   async updateOnCustomerName(org: string, id: string, name: string) {
+    if (typeof name !== 'string') {
+      throw new BadRequestException('Group name must be a string');
+    }
+    const trimmedName = name.trim();
+    // Preserve the existing explicit empty-string disconnect contract.
+    if (name !== '' && (!trimmedName || trimmedName.length > 64)) {
+      throw new BadRequestException('Group name must contain 1 to 64 characters');
+    }
+    name = trimmedName;
+    await this.assertActiveIntegration(org, id);
     const customer = !name
       ? undefined
       : (await this._customers.model.customer.findFirst({
           where: {
             orgId: org,
             name,
+            deletedAt: null,
           },
         })) ||
         (await this._customers.model.customer.create({
@@ -504,6 +515,7 @@ export class IntegrationRepository {
       where: {
         id,
         organizationId: org,
+        deletedAt: null,
       },
       data: {
         customer: !customer
@@ -511,17 +523,43 @@ export class IntegrationRepository {
           : {
               connect: {
                 id: customer.id,
+                orgId: org,
+                deletedAt: null,
               },
             },
       },
     });
   }
 
-  updateIntegrationGroup(org: string, id: string, group: string) {
+  private async assertActiveIntegration(org: string, id: string) {
+    const integration = await this._integration.model.integration.findFirst({
+      where: { id, organizationId: org, deletedAt: null },
+      select: { id: true },
+    });
+    if (!integration) {
+      throw new NotFoundException('Channel not found');
+    }
+  }
+
+  async updateIntegrationGroup(org: string, id: string, group: string) {
+    if (typeof group !== 'string') {
+      throw new BadRequestException('Group must be a string');
+    }
+    await this.assertActiveIntegration(org, id);
+    if (group) {
+      const customer = await this._customers.model.customer.findFirst({
+        where: { id: group, orgId: org, deletedAt: null },
+        select: { id: true },
+      });
+      if (!customer) {
+        throw new NotFoundException('Group not found');
+      }
+    }
     return this._integration.model.integration.update({
       where: {
         id,
         organizationId: org,
+        deletedAt: null,
       },
       data: !group
         ? {
@@ -533,6 +571,8 @@ export class IntegrationRepository {
             customer: {
               connect: {
                 id: group,
+                orgId: org,
+                deletedAt: null,
               },
             },
           },
