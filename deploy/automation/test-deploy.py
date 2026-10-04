@@ -38,7 +38,8 @@ class DeployTests(unittest.TestCase):
             docker = r'''#!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$TEST_CALLS"
-if [[ $1 == build ]]; then [[ $TEST_MODE != build-failure ]]; exit; fi
+if [[ $1 == load ]]; then [[ $TEST_MODE != load-failure ]]; exit; fi
+if [[ $1 == image ]]; then exit 0; fi
 if [[ $1 == inspect ]]; then
   case "$3" in
     *'.Image'*) echo sha256:old ;;
@@ -82,26 +83,28 @@ before_switch() { [[ $TEST_MODE != backup-failure ]]; }
 '''
             if mounted:
                 config += 'STARTUP_SOURCE=start.sh\nSTARTUP_TARGET=/start.sh\n'
-            archive = incoming / 'source.tar.gz'
-            with tarfile.open(archive, 'w:gz') as tar:
-                for name, content in {'deploy/automation/project.sh': config,
-                                      'Dockerfile': 'FROM scratch\n',
-                                      'start.sh': 'echo new\n'}.items():
-                    data = content.encode()
-                    entry = tarfile.TarInfo(name)
-                    entry.size = len(data)
-                    tar.addfile(entry, io.BytesIO(data))
-            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-            if mode == 'checksum-failure':
-                digest = '0' * 64
+            archive = incoming / 'image.tar.gz'
+            archive.write_bytes(b'fake-image')
+            (incoming / 'project.sh').write_text(config)
+            (incoming / 'image.txt').write_text('app-release:test-release')
+            (incoming / 'start.sh').write_text('echo new\n')
+            sums = []
+            for item in (archive, incoming / 'project.sh', incoming / 'image.txt', incoming / 'start.sh'):
+                digest = hashlib.sha256(item.read_bytes()).hexdigest()
+                if mode == 'checksum-failure' and item == archive:
+                    digest = '0' * 64
+                sums.append(f'{digest}  {item.name}\n')
+            (incoming / 'SHA256SUMS').write_text(''.join(sums))
             env = os.environ.copy()
             env.update(TEST_MODE=mode, TEST_CALLS=posix(calls), TEST_STATE=posix(state),
                        TEST_OLD_START=posix(old_start), TEST_PYTHON=posix(sys.executable))
             # Set PATH inside bash to avoid Windows semicolon PATH conversion ambiguity.
             result = subprocess.run([BASH, '-c',
-                'export PATH="$1:$PATH"; exec bash "$2" "$3" test-release "$4" https://example.com',
-                'test', posix(bins), posix(HERE / 'deploy.sh'), posix(root), digest],
+                'export PATH="$1:$PATH"; exec bash "$2" "$3" test-release https://example.com',
+                'test', posix(bins), posix(HERE / 'deploy.sh'), posix(root)],
                 env=env, text=True, capture_output=True, timeout=30)
+            self.assertFalse(archive.exists(), result.stdout + result.stderr)
+            self.assertFalse((root / 'releases').exists())
             log = calls.read_text() if calls.exists() else ''
             active = root / '.deploy-state/active.json'
             active_config = json.loads(active.read_text()) if active.exists() else None
@@ -120,7 +123,7 @@ before_switch() { [[ $TEST_MODE != backup-failure ]]; }
         self.assertEqual(active['services']['app']['volumes'][0]['target'], '/start.sh')
 
     def test_failures_before_switch_keep_old_app(self):
-        for failure in ('build-failure', 'backup-failure', 'checksum-failure'):
+        for failure in ('load-failure', 'backup-failure', 'checksum-failure'):
             with self.subTest(failure=failure):
                 result, log, active = self.run_case(failure)
                 self.assertNotEqual(result.returncode, 0)

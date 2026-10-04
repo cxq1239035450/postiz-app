@@ -2,26 +2,24 @@
 # Update an existing Docker Compose installation without replacing its secrets/data.
 set -euo pipefail
 umask 077
-root=${1:?Usage: deploy.sh ROOT RELEASE SHA256 PUBLIC_URL}
+root=${1:?Usage: deploy.sh ROOT RELEASE PUBLIC_URL}
 release=${2:?Missing release}
-digest=${3:?Missing SHA256}
-public_url=${4:?Missing PUBLIC_URL}
+public_url=${3:?Missing PUBLIC_URL}
 [[ $root =~ ^/[a-zA-Z0-9_/-]+$ && $root != / ]]
-[[ $release =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,100}$ && $digest =~ ^[a-f0-9]{64}$ ]]
+[[ $release =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,100}$ ]]
 [[ $public_url =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?$ ]]
 root=$(realpath "$root")
 state="$root/.deploy-state"
-source_dir="$root/releases/$release"
-archive="$root/incoming/$release/source.tar.gz"
+incoming="$root/incoming/$release"
 for tool in docker python3 flock curl; do command -v "$tool" >/dev/null; done
-mkdir -p "$state" "$root/releases" "$root/backups"
+mkdir -p "$state" "$root/backups"
 exec 9>"$state/deploy.lock"
 flock -n 9 || { echo 'Another deployment is running.' >&2; exit 1; }
 exec > >(tee -a "$state/$release.log") 2>&1
-printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
-test ! -e "$source_dir" || { echo 'Release already exists; use a new release ID.' >&2; exit 1; }
-mkdir "$source_dir"
-tar --no-same-owner -xzf "$archive" -C "$source_dir"
+# Only images and runtime deployment metadata arrive on this server.
+cleanup_payload() { rm -f -- "$incoming/image.tar.gz"; }
+trap cleanup_payload EXIT
+(cd "$incoming" && sha256sum -c SHA256SUMS)
 COMPOSE_DIR=deploy/production
 COMPOSE_FILE=compose.yaml
 COMPOSE_ENV_FILE=.env
@@ -38,14 +36,15 @@ BUILD_ARGS=(--build-arg "PUBLIC_URL=$public_url")
 # Project hooks are trusted repository code, just like the Dockerfile.
 before_switch() { echo 'No project backup hook configured.'; }
 verify_app() { return 0; }
-source "$source_dir/deploy/automation/project.sh"
+source "$incoming/project.sh"
 prod="$root/$COMPOSE_DIR"
 test -f "$prod/$COMPOSE_FILE"
-test -f "$source_dir/$DOCKERFILE"
-image="$IMAGE_REPOSITORY:$release"
-echo "Building $image; current application remains running."
-docker build "${BUILD_ARGS[@]}" -t "$image" \
-  -f "$source_dir/$DOCKERFILE" "$source_dir/$BUILD_CONTEXT"
+image=$(cat "$incoming/image.txt")
+[[ $image == "$IMAGE_REPOSITORY:$release" ]]
+echo "Loading prebuilt $image; no source build runs on the server."
+docker load -i "$incoming/image.tar.gz"
+docker image inspect "$image" >/dev/null
+cleanup_payload
 base=(docker compose --project-directory "$prod")
 if [[ -n $COMPOSE_ENV_FILE ]]; then
   test -s "$prod/$COMPOSE_ENV_FILE"
@@ -65,8 +64,8 @@ if [[ -n $STARTUP_SOURCE && -n $STARTUP_TARGET ]]; then
   old_start=$(docker inspect --format "{{range .Mounts}}{{if eq .Destination \"$STARTUP_TARGET\"}}{{.Source}}{{end}}{{end}}" "$container")
   test -f "$old_start" || { echo 'Expected startup bind mount missing.' >&2; exit 1; }
   previous_start="$state/$release-previous-start.sh"
-  candidate_start="$source_dir/$STARTUP_SOURCE"
-  test -f "$candidate_start"
+  candidate_start="$state/$release-start.sh"
+  cp "$incoming/start.sh" "$candidate_start"
   cp "$old_start" "$previous_start"
 fi
 write_override() {
@@ -111,6 +110,7 @@ rollback_on_failure() {
       echo 'ROLLBACK NEEDS MANUAL ATTENTION. Inspect application logs and database compatibility.' >&2
     fi
   fi
+  cleanup_payload
   exit "$result"
 }
 trap rollback_on_failure EXIT

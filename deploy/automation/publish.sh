@@ -29,14 +29,28 @@ with tarfile.open(sys.argv[1]) as archive:
             or any(part in {'site-backup', 'backups', 'releases', '.deploy-state'} for part in path.parts)):
             raise SystemExit(f'Refusing to publish sensitive/state file: {member.name}')
 PY
-digest=$(sha256sum "$temp_dir/source.tar.gz" | cut -d ' ' -f 1)
-git show HEAD:deploy/automation/deploy.sh > "$temp_dir/deploy.sh"
+mkdir "$temp_dir/source"
+tar -xzf "$temp_dir/source.tar.gz" -C "$temp_dir/source"
+cd "$temp_dir/source"
+BUILD_ARGS=(--build-arg "PUBLIC_URL=$PUBLIC_URL")
+source deploy/automation/project.sh
+image="$IMAGE_REPOSITORY:$release"
+docker build "${BUILD_ARGS[@]}" -t "$image" -f "$DOCKERFILE" "$BUILD_CONTEXT"
+docker save "$image" | gzip -1 > "$temp_dir/image.tar.gz"
+printf '%s\n' "$image" > "$temp_dir/image.txt"
+cp deploy/automation/deploy.sh "$temp_dir/deploy.sh"
+cp deploy/automation/project.sh "$temp_dir/project.sh"
+if [[ -n ${STARTUP_SOURCE:-} ]]; then cp "$STARTUP_SOURCE" "$temp_dir/start.sh"; fi
+(cd "$temp_dir" && sha256sum image.tar.gz image.txt project.sh deploy.sh > SHA256SUMS)
+if test -f "$temp_dir/start.sh"; then (cd "$temp_dir" && sha256sum start.sh >> SHA256SUMS); fi
+payload=("$temp_dir/image.tar.gz" "$temp_dir/image.txt" "$temp_dir/project.sh" "$temp_dir/deploy.sh" "$temp_dir/SHA256SUMS")
+if test -f "$temp_dir/start.sh"; then payload+=("$temp_dir/start.sh"); fi
 ssh_options=(-i "$temp_dir/key" -o BatchMode=yes -o StrictHostKeyChecking=yes
   -o "UserKnownHostsFile=$temp_dir/known_hosts" -o ConnectTimeout=20
   -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
 target="$DEPLOY_USER@$DEPLOY_HOST"
 ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$target" "mkdir -p '$DEPLOY_ROOT/incoming/$release'"
-scp "${ssh_options[@]}" -P "$DEPLOY_PORT" "$temp_dir/source.tar.gz" "$temp_dir/deploy.sh" \
+scp "${ssh_options[@]}" -P "$DEPLOY_PORT" "${payload[@]}" \
   "$target:$DEPLOY_ROOT/incoming/$release/"
 ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$target" \
-  "bash '$DEPLOY_ROOT/incoming/$release/deploy.sh' '$DEPLOY_ROOT' '$release' '$digest' '$PUBLIC_URL'"
+  "bash '$DEPLOY_ROOT/incoming/$release/deploy.sh' '$DEPLOY_ROOT' '$release' '$PUBLIC_URL'"
