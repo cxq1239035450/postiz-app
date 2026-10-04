@@ -11,6 +11,8 @@ import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/n
 import { ForgotReturnPasswordDto } from '@gitroom/nestjs-libraries/dtos/auth/forgot-return.password.dto';
 import { EmailService } from '@gitroom/nestjs-libraries/services/email.service';
 import { NewsletterService } from '@gitroom/nestjs-libraries/newsletter/newsletter.service';
+import { createHash } from 'crypto';
+import type { VerifiedLoginIdentity } from './web-login/web-login.provider';
 
 @Injectable()
 export class AuthService {
@@ -132,6 +134,46 @@ export class AuthService {
     } catch (err) {
       return false;
     }
+  }
+
+  // Only called with an identity verified by a server-side OAuth code exchange.
+  // This is deliberately not exposed as a request DTO or a public API endpoint.
+  async loginVerifiedIdentity(
+    provider: 'GOOGLE' | 'WECHAT',
+    identity: VerifiedLoginIdentity,
+    ip: string,
+    userAgent: string,
+    orgCookie?: string
+  ) {
+    let user = await this._userService.getUserByProvider(identity.id, provider);
+    const isNew = !user;
+    if (!user) {
+      if (!(await this.canRegister(provider))) throw new Error('Registration is disabled');
+      // WeChat does not supply an email. Keep a stable non-deliverable identifier
+      // for the existing non-null email schema, never an invented real address.
+      const email = identity.email ||
+        `${createHash('sha256').update(identity.id).digest('hex')}@wechat.invalid`;
+      try {
+        const created = await this._organizationService.createOrgAndUser({
+          provider, providerId: identity.id, email, password: '',
+          company: (identity.name || 'QPublish Workspace').slice(0, 128),
+          datafast_visitor_id: '',
+        }, ip, userAgent);
+        user = created.users[0].user;
+      } catch (error) {
+        // A simultaneous callback may have created this exact identity already.
+        // Never attach a different identity merely because its email matches.
+        if ((error as { code?: string }).code !== 'P2002') throw error;
+        user = await this._userService.getUserByProvider(identity.id, provider);
+        if (!user) throw error;
+      }
+    }
+    if (!user.activated || user.deletedAt) throw new Error('Account unavailable');
+    const invitation = this.getOrgFromCookie(orgCookie);
+    const addedOrg = invitation && typeof invitation !== 'boolean'
+      ? await this._organizationService.addUserToOrg(user.id, invitation.id, invitation.orgId, invitation.role)
+      : false;
+    return { jwt: await this.jwt(user), addedOrg, isNew };
   }
 
   private async loginOrRegisterProvider(

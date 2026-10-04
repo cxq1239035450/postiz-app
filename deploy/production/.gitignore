@@ -1,0 +1,6 @@
+.env
+config/
+site-backup/
+*.tar.gz
+*.log
+source-files.txt

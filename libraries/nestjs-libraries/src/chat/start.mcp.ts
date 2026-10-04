@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { MastraService } from '@gitroom/nestjs-libraries/chat/mastra.service';
+import { isAiConfigured } from '@gitroom/nestjs-libraries/ai/ai.config';
 import { LoadToolsService } from '@gitroom/nestjs-libraries/chat/load.tools.service';
 import { MCPServer } from '@mastra/mcp';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
@@ -44,10 +45,12 @@ export const startMcp = async (app: INestApplication) => {
     return organizationService.getOrgByApiKey(token);
   };
 
-  const mastra = await mastraService.mastra();
-  const agent = mastra.getAgent('postiz');
+  // MCP's non-AI tools must remain available without a model API key.
+  const agent = isAiConfigured('agent')
+    ? (await mastraService.mastra()).getAgent('postiz')
+    : undefined;
   const tools = {
-    ...(await agent.listTools()),
+    ...(await loadToolsService.loadTools()),
     // tools that only make sense inside an MCP host (ui:// widgets)
     ...(await loadToolsService.loadTools(true)),
   };
@@ -117,7 +120,7 @@ export const startMcp = async (app: INestApplication) => {
     name: 'Postiz MCP',
     version: '1.0.0',
     tools,
-    agents: { postiz: agent },
+    agents: agent ? { postiz: agent } : {},
     appResources,
   };
 

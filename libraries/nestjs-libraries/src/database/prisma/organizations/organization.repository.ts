@@ -482,6 +482,11 @@ export class OrganizationRepository {
                   : '',
                 providerName: body.provider,
                 providerId: body.providerId || '',
+                ...(body.provider === 'WECHAT' ? {
+                  sendSuccessEmails: false,
+                  sendFailureEmails: false,
+                  sendStreakEmails: false,
+                } : {}),
                 timezone: 0,
                 ip,
                 agent: userAgent,

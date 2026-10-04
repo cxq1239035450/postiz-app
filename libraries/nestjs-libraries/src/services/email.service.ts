@@ -41,6 +41,7 @@ export class EmailService {
     addTo: 'top' | 'bottom',
     replyTo?: string
   ) {
+    if (to.toLowerCase().endsWith('.invalid')) return;
     return this._temporalService.client
       .getRawClient()
       ?.workflow.signalWithStart('sendEmailWorkflow', {
@@ -59,7 +60,7 @@ export class EmailService {
     html: string,
     replyTo?: string
   ) {
-    if (to.indexOf('@') === -1) {
+    if (to.indexOf('@') === -1 || to.toLowerCase().endsWith('.invalid')) {
       return;
     }
 

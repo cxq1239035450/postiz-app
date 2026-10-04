@@ -1,5 +1,8 @@
+import { aiModels } from '@gitroom/nestjs-libraries/ai/ai.models';
+import { getAiConfig, isAiConfigured } from '@gitroom/nestjs-libraries/ai/ai.config';
 import {
   Logger,
+  ServiceUnavailableException,
   Controller,
   Get,
   Post,
@@ -47,12 +50,8 @@ export class CopilotController {
   ) {}
   @Post('/chat')
   chatAgent(@Req() req: Request, @Res() res: Response) {
-    if (
-      process.env.OPENAI_API_KEY === undefined ||
-      process.env.OPENAI_API_KEY === ''
-    ) {
-      Logger.warn('OpenAI API key not set, chat functionality will not work');
-      return;
+    if (!isAiConfigured('chat')) {
+      return res.status(503).json({ error: 'AI chat is not configured' });
     }
 
     const copilotRuntimeHandler = copilotRuntimeNodeHttpEndpoint({
@@ -60,7 +59,9 @@ export class CopilotController {
       cors: copilotCors(),
       runtime: new CopilotRuntime(),
       serviceAdapter: new OpenAIAdapter({
-        model: 'gpt-4.1',
+        model: getAiConfig('chat').model,
+        openai: aiModels.client('chat'),
+        keepSystemRole: getAiConfig('chat').provider !== 'openai',
       }),
     });
 
@@ -74,12 +75,8 @@ export class CopilotController {
     @Res() res: Response,
     @GetOrgFromRequest() organization: Organization
   ) {
-    if (
-      process.env.OPENAI_API_KEY === undefined ||
-      process.env.OPENAI_API_KEY === ''
-    ) {
-      Logger.warn('OpenAI API key not set, chat functionality will not work');
-      return;
+    if (!isAiConfigured('agent')) {
+      return res.status(503).json({ error: 'AI agent is not configured' });
     }
     const mastra = await this._mastraService.mastra();
     const requestContext = new RequestContext<ChannelsContext>();
@@ -100,13 +97,16 @@ export class CopilotController {
     const runtime = new CopilotRuntime({
       agents,
     });
+    const adapterRole = isAiConfigured('chat') ? 'chat' : 'agent';
 
     const copilotRuntimeHandler = copilotRuntimeNodeHttpEndpoint({
       endpoint: '/copilot/agent',
       cors: copilotCors(),
       runtime,
       serviceAdapter: new OpenAIAdapter({
-        model: 'gpt-4.1',
+        model: getAiConfig(adapterRole).model,
+        openai: aiModels.client(adapterRole),
+        keepSystemRole: getAiConfig(adapterRole).provider !== 'openai',
       }),
     });
 
@@ -130,6 +130,9 @@ export class CopilotController {
     @GetOrgFromRequest() organization: Organization,
     @Param('thread') threadId: string
   ): Promise<any> {
+    if (!isAiConfigured('agent')) {
+      throw new ServiceUnavailableException('AI agent is not configured');
+    }
     const mastra = await this._mastraService.mastra();
     const memory = await mastra.getAgent('postiz').getMemory();
     try {
@@ -146,6 +149,9 @@ export class CopilotController {
   @Get('/list')
   @CheckPolicies([AuthorizationActions.Create, Sections.AI])
   async getList(@GetOrgFromRequest() organization: Organization) {
+    if (!isAiConfigured('agent')) {
+      throw new ServiceUnavailableException('AI agent is not configured');
+    }
     const mastra = await this._mastraService.mastra();
     const memory = await mastra.getAgent('postiz').getMemory();
     const list = await memory.listThreads({

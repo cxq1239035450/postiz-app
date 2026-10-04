@@ -1,0 +1,106 @@
+name: qpublish
+services:
+  app:
+    image: qpublish-local:20261003
+    build:
+      context: ../..
+      dockerfile: deploy/production/Dockerfile
+      args:
+        PUBLIC_URL: https://qpublush.io
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:4007:5000'
+    volumes:
+      - ./config:/config
+      - ./start.sh:/app/deploy/production/start.sh:ro
+      - uploads:/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/user/self').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postiz
+      POSTGRES_USER: postiz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postiz -d postiz']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  temporal-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_PASSWORD:?required}
+    volumes:
+      - temporal-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U temporal']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  elasticsearch:
+    image: elasticsearch:7.17.27
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: '-Xms512m -Xmx512m'
+      xpack.security.enabled: 'false'
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+  temporal:
+    image: temporalio/auto-setup:1.28.1
+    restart: unless-stopped
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_PASSWORD:?required}
+      POSTGRES_SEEDS: temporal-postgres
+      ENABLE_ES: 'true'
+      ES_SEEDS: elasticsearch
+      ES_VERSION: v7
+      TEMPORAL_NAMESPACE: default
+    healthcheck:
+      test: ['CMD-SHELL', 'temporal operator cluster health --address $$(hostname -i):7233 --command-timeout 5s']
+      interval: 10s
+      timeout: 10s
+      start_period: 90s
+      retries: 30
+volumes:
+  postgres:
+  redis:
+  temporal-postgres:
+  elasticsearch:
+  uploads:

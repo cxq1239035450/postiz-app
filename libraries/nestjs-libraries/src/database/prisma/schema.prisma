@@ -1766,6 +1766,7 @@ enum Provider {
   LOCAL
   GITHUB
   GOOGLE
+  WECHAT
   APPLE
   FARCASTER
   WALLET
