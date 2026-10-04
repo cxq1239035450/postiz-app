@@ -1,3 +1,4 @@
+import { isAiConfigured } from '@gitroom/nestjs-libraries/ai/ai.config';
 import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
 import {
   ExposeVideoFunction,
@@ -65,7 +66,7 @@ class ImagesSlidesParams {
     !!process.env.ELEVENSLABS_API_KEY &&
     !!process.env.TRANSLOADIT_AUTH &&
     !!process.env.TRANSLOADIT_SECRET &&
-    !!process.env.OPENAI_API_KEY &&
+    isAiConfigured('text') &&
     !!process.env.FAL_KEY,
 })
 export class ImagesSlides extends VideoAbstract<ImagesSlidesParams> {

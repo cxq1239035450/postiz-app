@@ -1,12 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import OpenAI from 'openai';
+import { aiModels } from '@gitroom/nestjs-libraries/ai/ai.models';
 import { shuffle } from 'lodash';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'sk-proj-',
-});
 
 const PicturePrompt = z.object({
   prompt: z.string(),
@@ -40,9 +36,8 @@ export class OpenaiService {
     maxClips: number
   ) {
     const { clips } = (
-      await openai.chat.completions.parse(
+      await aiModels.parse(
         {
-          model: 'gpt-4.1',
           messages: [
             {
               role: 'system',
@@ -76,24 +71,17 @@ Clips must not overlap. Write the title and the post in this language, whatever 
   }
 
   async generateImage(prompt: string, isVertical = false) {
-    // gpt-image models always return base64 (b64_json) and do not accept the
-    // `response_format` parameter, unlike the deprecated dall-e-3.
-    const generate = (
-      await openai.images.generate({
-        prompt,
-        model: 'chatgpt-image-latest',
-        size: isVertical ? '1024x1536' : '1024x1024',
-      })
-    ).data[0];
-
-    return generate.b64_json;
+    const image = await aiModels.image(prompt, isVertical ? '1024x1536' : '1024x1024');
+    if (!image.b64_json) {
+      throw new Error('This image feature requires a provider returning b64_json');
+    }
+    return image.b64_json;
   }
 
   async generatePromptForPicture(prompt: string) {
     return (
       (
-        await openai.chat.completions.parse({
-          model: 'gpt-4.1',
+        await aiModels.parse({
           messages: [
             {
               role: 'system',
@@ -113,8 +101,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
   async generateVoiceFromText(prompt: string) {
     return (
       (
-        await openai.chat.completions.parse({
-          model: 'gpt-4.1',
+        await aiModels.parse({
           messages: [
             {
               role: 'system',
@@ -134,7 +121,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
   async generatePosts(content: string) {
     const posts = (
       await Promise.all([
-        openai.chat.completions.create({
+        aiModels.complete({
           messages: [
             {
               role: 'assistant',
@@ -148,9 +135,8 @@ Clips must not overlap. Write the title and the post in this language, whatever 
           ],
           n: 5,
           temperature: 1,
-          model: 'gpt-4.1',
         }),
-        openai.chat.completions.create({
+        aiModels.complete({
           messages: [
             {
               role: 'assistant',
@@ -164,7 +150,6 @@ Clips must not overlap. Write the title and the post in this language, whatever 
           ],
           n: 5,
           temperature: 1,
-          model: 'gpt-4.1',
         }),
       ])
     ).flatMap((p) => p.choices);
@@ -190,7 +175,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
     );
   }
   async extractWebsiteText(content: string) {
-    const websiteContent = await openai.chat.completions.create({
+    const websiteContent = await aiModels.complete({
       messages: [
         {
           role: 'assistant',
@@ -202,7 +187,6 @@ Clips must not overlap. Write the title and the post in this language, whatever 
           content,
         },
       ],
-      model: 'gpt-4.1',
     });
 
     const { content: articleContent } = websiteContent.choices[0].message;
@@ -221,8 +205,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
 
     const posts =
       (
-        await openai.chat.completions.parse({
-          model: 'gpt-4.1',
+        await aiModels.parse({
           messages: [
             {
               role: 'system',
@@ -254,8 +237,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
             try {
               return (
                 (
-                  await openai.chat.completions.parse({
-                    model: 'gpt-4.1',
+                  await aiModels.parse({
                     messages: [
                       {
                         role: 'system',
@@ -290,8 +272,7 @@ Clips must not overlap. Write the title and the post in this language, whatever 
         const message = `You are an assistant that takes a text and break it into slides, each slide should have an image prompt and voice text to be later used to generate a video and voice, image prompt should capture the essence of the slide and also have a back dark gradient on top, image prompt should not contain text in the picture, generate between 3-5 slides maximum`;
         const parse =
           (
-            await openai.chat.completions.parse({
-              model: 'gpt-4.1',
+            await aiModels.parse({
               messages: [
                 {
                   role: 'system',

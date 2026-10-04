@@ -1,5 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AuthController } from '@gitroom/backend/api/routes/auth.controller';
+import { WebLoginController } from './routes/web-login.controller';
+import { WebLoginService } from '../services/auth/web-login/web-login.service';
+import { GoogleLoginProvider } from '../services/auth/web-login/google-login.provider';
+import { WechatLoginProvider } from '../services/auth/web-login/wechat-login.provider';
 import { AuthService } from '@gitroom/backend/services/auth/auth.service';
 import { UsersController } from '@gitroom/backend/api/routes/users.controller';
 import { AuthMiddleware } from '@gitroom/backend/services/auth/auth.middleware';
@@ -93,6 +97,7 @@ const authenticatedController = [
         PaymentController,
         StripeController,
         AuthController,
+        WebLoginController,
         PublicController,
         MonitorController,
         EnterpriseController,
@@ -104,6 +109,9 @@ const authenticatedController = [
       ],
   providers: [
     AuthService,
+    WebLoginService,
+    GoogleLoginProvider,
+    WechatLoginProvider,
     StripeService,
     PaymentService,
     PaymentProviderManager,

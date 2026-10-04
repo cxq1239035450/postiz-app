@@ -1,0 +1,4 @@
+deploy/production/*.sh text eol=lf
+deploy/automation/*.sh text eol=lf
+deploy/automation/examples/*.sh text eol=lf
+deploy/production/Dockerfile text eol=lf

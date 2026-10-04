@@ -21,3 +21,15 @@ dist
 .git
 .github
 reports
+
+# Keep deployment secrets and source bundles out of image layers.
+**/.env*
+deploy/production/config
+deploy/production/site-backup
+deploy/production/source-files.txt
+**/*.tar.gz
+output
+incoming
+releases
+backups
+.deploy-state
