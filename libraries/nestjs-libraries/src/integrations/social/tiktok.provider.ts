@@ -417,6 +417,39 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  async creatorInfo(accessToken: string) {
+    const response = await fetch(
+      'https://open.tiktokapis.com/v2/post/publish/creator_info/query/',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    const body = await response.json();
+    const data = body?.data;
+    if (!response.ok || body?.error?.code !== 'ok' ||
+        !Array.isArray(data?.privacy_level_options) ||
+        !data.privacy_level_options.every((value: unknown) => typeof value === 'string') ||
+        !['comment_disabled', 'duet_disabled', 'stitch_disabled'].every(
+          (key) => typeof data[key] === 'boolean'
+        ) || !Number.isFinite(data.max_video_post_duration_sec) ||
+        data.max_video_post_duration_sec <= 0) {
+      throw new Error('TikTok creator permissions are unavailable');
+    }
+    return {
+      creator_username: typeof data.creator_username === 'string' ? data.creator_username : '',
+      creator_nickname: typeof data.creator_nickname === 'string' ? data.creator_nickname : '',
+      privacy_level_options: data.privacy_level_options,
+      comment_disabled: data.comment_disabled,
+      duet_disabled: data.duet_disabled,
+      stitch_disabled: data.stitch_disabled,
+      max_video_post_duration_sec: data.max_video_post_duration_sec,
+    };
+  }
+
   async maxVideoLength(accessToken: string) {
     const {
       data: { max_video_post_duration_sec },
