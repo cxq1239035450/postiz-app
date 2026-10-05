@@ -692,6 +692,25 @@ export const AddProviderComponent: FC<{
             isMobile ? {} : onboarding ? 'grid-cols-9' : 'grid-cols-5'
           )}
         >
+          {!props.invite && !onboarding && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const response = await fetch('/website-analytics/authorize', { method: 'POST', body: '{}' });
+                  const data = await response.json();
+                  if (!response.ok) { toaster.show(data.message || '网站授权暂不可用', 'warning'); return; }
+                  modal.closeAll();
+                  window.location.assign(data.url);
+                } catch { toaster.show('暂时无法连接，请稍后重试。', 'warning'); }
+              }}
+              className="w-full min-h-[100px] p-[10px] rounded-[8px] bg-newTableHeader text-textColor flex flex-col items-center justify-center gap-1"
+            >
+              <span aria-hidden="true" className="text-3xl">◎</span>
+              <span>独立站 / Search Console</span>
+              <small className="text-gray-400">仅数据观测</small>
+            </button>
+          )}
           {social
             .filter((item) => {
               if (!props.invite) {

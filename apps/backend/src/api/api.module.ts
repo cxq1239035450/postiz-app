@@ -1,4 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { WebsiteAnalyticsController } from './routes/website-analytics.controller';
+import { WebsiteAnalyticsService } from '../services/website-analytics/website-analytics.service';
 import { AuthController } from '@gitroom/backend/api/routes/auth.controller';
 import { WebLoginController } from './routes/web-login.controller';
 import { WebLoginService } from '../services/auth/web-login/web-login.service';
@@ -62,6 +64,7 @@ import { OauthProvider } from '@gitroom/backend/services/auth/providers/oauth.pr
 import { StripeController } from '@gitroom/backend/api/routes/stripe.controller';
 
 const authenticatedController = [
+  WebsiteAnalyticsController,
   UsersController,
   AnalyticsController,
   IntegrationsController,
@@ -108,6 +111,7 @@ const authenticatedController = [
         ...authenticatedController,
       ],
   providers: [
+    WebsiteAnalyticsService,
     AuthService,
     WebLoginService,
     GoogleLoginProvider,

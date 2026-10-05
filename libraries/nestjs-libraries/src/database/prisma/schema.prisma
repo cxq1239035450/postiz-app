@@ -45,11 +45,40 @@ model Organization {
   webhooks            Webhooks[]
   oauthApp            OAuthApp[]
   oauthAuthorizations OAuthAuthorization[]
+  websiteConnections WebsiteConnection[]
+  websiteAuthorizations WebsiteAuthorization[]
 
   @@index([apiKey])
   @@index([streakSince])
   @@index([paymentId])
   @@index([deletedAt])
+}
+
+// Read-only sources deliberately have no relation to posts or channel billing.
+model WebsiteConnection {
+  id String @id @default(cuid())
+  organizationId String
+  siteUrl String
+  credentials String
+  reconnectRequired Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, siteUrl])
+}
+
+// Short-lived, single-use OAuth states and encrypted site-selection tickets.
+model WebsiteAuthorization {
+  id String @id
+  organizationId String
+  userId String
+  kind String
+  payload String
+  expiresAt DateTime
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 model Tags {
