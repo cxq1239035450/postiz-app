@@ -706,8 +706,8 @@ export const AddProviderComponent: FC<{
               }}
               className="w-full min-h-[100px] p-[10px] rounded-[8px] bg-newTableHeader text-textColor flex flex-col items-center justify-center gap-1"
             >
-              <span aria-hidden="true" className="text-3xl">◎</span>
-              <span>独立站 / Search Console</span>
+              <img src="/icons/platforms/search-console.svg" alt="" width={32} height={32} />
+              <span>Search Console</span>
               <small className="text-gray-400">仅数据观测</small>
             </button>
           )}
