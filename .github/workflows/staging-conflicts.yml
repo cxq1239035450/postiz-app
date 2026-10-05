@@ -21,6 +21,9 @@ concurrency:
 
 jobs:
   resolve:
+    # Opt in only after creating staging and configuring both required secrets.
+    # Self-hosted deployments using main do not need this upstream maintenance job.
+    if: vars.ENABLE_STAGING_CONFLICT_RESOLVER == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
