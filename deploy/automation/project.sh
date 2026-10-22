@@ -22,5 +22,5 @@ before_switch() {
 
 verify_app() {
   "${base[@]}" -f "$1" exec -T "$APP_SERVICE" node -e \
-    "Promise.all([fetch('http://127.0.0.1:4200/auth/login'),fetch('http://127.0.0.1:3000/user/self')]).then(([f,b])=>process.exit(f.status===200&&b.status===401?0:1)).catch(()=>process.exit(1))"
+    "Promise.all([fetch('http://127.0.0.1:5000/auth/login'),fetch('http://127.0.0.1:5000/api/user/self')]).then(([f,b])=>process.exit(f.status===200&&b.status===401?0:1)).catch(()=>process.exit(1))"
 }
